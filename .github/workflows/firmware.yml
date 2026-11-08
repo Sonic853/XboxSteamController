@@ -38,7 +38,8 @@ jobs:
           FIRMWARE_ZIP_URL: ${{ inputs.firmware_zip_url }}
         run: python tools/dependencies.py
       - name: Install pinned ARM emulator for tests
-        run: python -m pip install --disable-pip-version-check --only-binary=:all: --no-deps --target .tools/python unicorn==2.1.4
+        run: >-
+          python -m pip install --disable-pip-version-check --only-binary=:all: --no-deps --target .tools/python unicorn==2.1.4
       - name: Build LPC and nRF firmware
         run: python tools/build.py --base-dir .tools/base --toolchain-bin .tools/gcc/bin
       - name: All tests including ARM execution
