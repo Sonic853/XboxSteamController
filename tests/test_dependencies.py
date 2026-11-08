@@ -142,11 +142,18 @@ class DependencyTests(unittest.TestCase):
             link = tarfile.TarInfo("gcc/bin/alias")
             link.type = tarfile.LNKTYPE
             link.linkname = "gcc/bin/compiler"
+            # Hard links share an inode; tar applies the link record's mode too.
+            # Match the executable target instead of TarInfo's default 0o644.
+            link.mode = member.mode
             package.addfile(link)
         deps.unpack_toolchain(archive, self.root / "stage")
-        self.assertEqual((self.root / "stage/gcc/bin/alias").read_bytes(), b"data")
+        compiler = self.root / "stage/gcc/bin/compiler"
+        alias = self.root / "stage/gcc/bin/alias"
+        self.assertEqual(alias.read_bytes(), b"data")
+        self.assertTrue(alias.samefile(compiler))
         if deps.platform.system() != "Windows":
-            self.assertTrue((self.root / "stage/gcc/bin/compiler").stat().st_mode & stat.S_IXUSR)
+            self.assertTrue(compiler.stat().st_mode & stat.S_IXUSR)
+            self.assertTrue(alias.stat().st_mode & stat.S_IXUSR)
 
     def test_toolchain_reinstalled_from_verified_cache(self):
         downloads = self.root / "downloads"
