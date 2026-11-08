@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "name": "radio",
+  "base": {
+    "filename": "vcf_wired_controller_d0g_5a0e3f348_radio.bin",
+    "sha256": "db45055fc5251a5800961337454a76fb7a0ccf30a09414f757df5b20d73b96bb"
+  },
+  "payload": {"origin": "0x20000", "limit": "0x3f800"},
+  "ram": {"origin": "0x20003e28", "size": "0x1d8"},
+  "hooks": [
+    {"kind": "image_end_minus", "address": "0x18010", "expected": "0x7014", "base": "0x18000", "purpose": "Update inferred application length"},
+    {"kind": "literal", "address": "0x180cc", "expected": "0x1d2f1", "symbol": "radio_boot", "thumb": true, "purpose": "Initialize patch BSS after original scatter, before main"},
+    {"kind": "literal", "address": "0x1ef1c", "expected": "0x189c9", "symbol": "radio_config", "thumb": true, "purpose": "Read profile marker before the original config callback"},
+    {"kind": "literal", "address": "0x1eee8", "expected": "0x18949", "symbol": "radio_feature", "thumb": true, "purpose": "Consume Steam feature responses in Xbox profile"},
+    {"kind": "literal", "address": "0x1eefc", "expected": "0x19519", "symbol": "radio_status", "thumb": true, "purpose": "Prevent Steam vendor status on a nonexistent Xbox report index"},
+    {"kind": "bl", "address": "0x1d43c", "expected_target": "0x18394", "symbol": "radio_init", "purpose": "Freeze profile, initialize original GATT and retry timer"},
+    {"kind": "bl", "address": "0x183c8", "expected_target": "0x18d10", "symbol": "radio_gap", "purpose": "Set Xbox name and gamepad appearance"},
+    {"kind": "bl", "address": "0x18b2c", "expected_target": "0x1b7b0", "symbol": "radio_dis", "purpose": "Select Series PnP identity"},
+    {"kind": "bl", "address": "0x18efc", "expected_target": "0x1b960", "symbol": "radio_hids", "purpose": "Register Series map, reports and isolated HIDS callback"},
+    {"kind": "bl", "address": "0x18300", "expected_target": "0x1b23c", "symbol": "radio_advertising", "purpose": "Place full Xbox name in scan response and advertise HID"},
+    {"kind": "bl", "address": "0x18a0c", "expected_target": "0x19418", "symbol": "radio_input", "purpose": "Translate complete SC BLE delta before Steam fragmentation"},
+    {"kind": "bl", "address": "0x187e2", "expected_target": "0x1912c", "symbol": "radio_event", "purpose": "Reset cached input across BLE connection lifecycle"},
+    {"kind": "bl", "address": "0x1d404", "expected_target": "0x18744", "symbol": "radio_service", "purpose": "Gate encrypted subscribed input and retry backpressure in main loop"}
+  ]
+}

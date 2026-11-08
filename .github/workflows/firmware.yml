@@ -1,0 +1,62 @@
+name: Build SC2015 firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Build runner (x86-64)
+        type: choice
+        options:
+          - ubuntu-22.04
+          - windows-2022
+        default: ubuntu-22.04
+      firmware_zip_url:
+        description: Optional HTTPS mirror of the exact pinned Valve ZIP
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  firmware:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Browser protocol tests
+        run: node --test tests/test_web.mjs
+      - name: Fetch and verify pinned dependencies
+        env:
+          FIRMWARE_ZIP_URL: ${{ inputs.firmware_zip_url }}
+        run: python tools/dependencies.py
+      - name: Install pinned ARM emulator for tests
+        run: python -m pip install --disable-pip-version-check --only-binary=:all: --no-deps --target .tools/python unicorn==2.1.4
+      - name: Build LPC and nRF firmware
+        run: python tools/build.py --base-dir .tools/base --toolchain-bin .tools/gcc/bin
+      - name: All tests including ARM execution
+        env:
+          PYTHONPATH: .tools/python
+          XSC_REQUIRE_ARM_TESTS: '1'
+          XSC_REQUIRE_EMULATION: '1'
+        run: python -m unittest discover -s tests -v
+      - name: Upload firmware and build records
+        uses: actions/upload-artifact@v4
+        with:
+          name: SC2015-firmware-${{ inputs.runner }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            build/host.bin
+            build/radio.bin
+            build/host-payload.elf
+            build/radio-payload.elf
+            build/manifest.json
+            build/SHA256SUMS

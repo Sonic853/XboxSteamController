@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "name": "host",
+  "base": {
+    "filename": "vcf_wired_controller_d0g_5b0f21bd.bin",
+    "sha256": "2c42adb211c9f209dae5ac223ed451229d0aa08b139acfbd56f36b0d8add6fc4"
+  },
+  "payload": {"origin": "0x14000", "limit": "0x1e000"},
+  "ram": {"origin": "0x10001fd0", "size": 16},
+  "protected_ranges": [
+    {"start": "0x1e000", "end": "0x20000", "purpose": "Independent Xbox journal; no payload, padding or patch bytes here"},
+    {"start": "0x2010", "end": "0x2014", "purpose": "Original zero word, not an application-length field"}
+  ],
+  "hooks": [
+    {"kind": "exact", "address": "0x2000", "before": "e01f0010", "after": "d01f0010", "purpose": "Reserve 16-byte scratch below original ROM workspace: vector MSP"},
+    {"kind": "exact", "address": "0x20d0", "before": "e01f0010", "after": "d01f0010", "purpose": "Reserve the same scratch in runtime MSP reload"},
+    {"kind": "bl", "address": "0x616c", "expected_target": "0x64b4", "symbol": "host_selector", "purpose": "Right bumper(index6)+Steam Xbox; Y adds re-pair; ordinary boot calls original selector"},
+    {"kind": "exact", "address": "0x6b58", "before": "00487047", "after": "00480047", "purpose": "Transport getter tail trampoline, preserving caller LR"},
+    {"kind": "literal", "address": "0x6b5c", "expected": "0x10000998", "symbol": "host_transport", "thumb": true, "purpose": "Xbox shadow transport without EEPROM writes"},
+    {"kind": "bl", "address": "0xf1bc", "expected_target": "0xd560", "symbol": "host_radio_start", "purpose": "Apply raw settings before original radio startup"},
+    {"kind": "bl", "address": "0x725c", "expected_target": "0xcd3c", "symbol": "host_input_build", "purpose": "Repair Xbox raw settings after official reset before original input gate"},
+    {"kind": "bl", "address": "0xd6d8", "expected_target": "0x6bc8", "symbol": "host_config_read", "purpose": "Requested configuration reads use independent Xbox journal"},
+    {"kind": "bl", "address": "0xd7b2", "expected_target": "0x6bc8", "symbol": "host_config_read", "purpose": "Proactive startup configuration uses the same isolated journal"},
+    {"kind": "bl", "address": "0xd6fc", "expected_target": "0xd400", "symbol": "host_reply_send", "purpose": "Mark full Xbox 5d reply without changing 137-byte wire length"},
+    {"kind": "bl", "address": "0xd7ca", "expected_target": "0xd400", "symbol": "host_startup_send", "purpose": "Initialize and mark Xbox proactive configuration header"},
+    {"kind": "literal", "address": "0xd778", "expected": "0xd8bd", "symbol": "host_config_write", "thumb": true, "purpose": "Deferred Xbox write bypasses Steam EEPROM and connection-index rotation"},
+    {"kind": "literal", "address": "0xd3e4", "expected": "0xd605", "symbol": "host_uart_receive", "thumb": true, "purpose": "Validate Xbox 5e packet lengths before original queue copy"},
+    {"kind": "bl", "address": "0x91d0", "expected_target": "0x218c", "symbol": "host_snapshot_copy", "purpose": "Xbox six full control fields each builder tick, plus first-frame accel/gyro"}
+  ]
+}
