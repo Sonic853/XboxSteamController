@@ -1,6 +1,6 @@
-import { defaultMapping, encodeMapping, ProtocolError } from "./protocol.mjs";
-import { connectBluetooth, DiagnosticPoller } from "./manager.mjs";
-import { t, messages, sources, targets, blockReasons, getLanguage, setLanguage, initialLanguage, localize } from "./i18n.mjs?v=1.1";
+import { defaultMapping, encodeMapping, ProtocolError } from "./protocol.mjs?v=1.2";
+import { connectBluetooth, getAuthorizedDevices, DiagnosticPoller } from "./manager.mjs?v=1.2";
+import { t, messages, sources, targets, blockReasons, getLanguage, setLanguage, initialLanguage, localize } from "./i18n.mjs?v=1.2";
 
 const $ = (id) => document.getElementById(id);
 const node = (tag, className = "", text) => {
@@ -16,6 +16,8 @@ const secure = window.isSecureContext && ["https:", "http:"].includes(window.loc
 const compatible = secure && Boolean(navigator.bluetooth?.requestDevice);
 let session = null, busy = false, draftDirty = false, mappingState = "preview", mappingError = null;
 let lastRead = null, diagnostic = null, notice = null;
+let authorizedDevices = [];
+const canListDevices = compatible && typeof navigator.bluetooth.getDevices === "function";
 const activity = [];
 const connected = () => Boolean(session && !session.channel.closed && session.device.gatt.connected);
 const hex32 = (n) => `0x${n.toString(16).padStart(8, "0")}`;
@@ -39,7 +41,8 @@ const poller = new DiagnosticPoller(() => perform(readDiagnostics, { quiet: true
   () => connected() && !busy && $("poll").checked && !document.hidden);
 
 function errorText(error) {
-  const text = messages[error?.code] ? t(error.code) : error?.message || String(error);
+  let text = messages[error?.code] ? t(error.code) : error?.message || String(error);
+  if (error?.cause?.message) text += ` (${error.cause.name}: ${error.cause.message})`;
   return error?.hostStatus !== undefined ? `${text} hostStatus=${hex32(error.hostStatus)}` : text;
 }
 function setNotice(key, params = {}, success = false) { notice = key ? { key, params, success } : null; renderNotice(); }
@@ -74,7 +77,7 @@ async function perform(operation, { quiet = false } = {}) {
   render();
   try { await operation(); }
   catch (error) {
-    if (error.name === "NotFoundError" && !session) log("canceled");
+    if (error.code === "chooserEmpty") { setNotice("chooserEmpty"); log("chooserEmpty"); }
     else {
       notice = { error }; renderNotice(); log("error", {}, error);
       if (!quiet && !session?.client.snapshot && !error.saveState) mappingError = error;
@@ -148,6 +151,7 @@ function render() {
   $("connection-status").textContent = `${t(live ? "connected" : "disconnected")}${busy ? ` · ${t("working")}` : ""}`;
   $("connect").disabled = !compatible || busy || live;
   $("disconnect").disabled = !live;
+  renderDevices();
   $("mapping-offline").hidden = live;
   $("mapping-controls").disabled = $("defaults").disabled = busy;
   $("save").disabled = !ready || busy;
@@ -155,6 +159,29 @@ function render() {
   $("export-diag").disabled = !diagnostic;
   $("environment").textContent = t(compatible ? "environment" : secure ? "unsupported" : "insecure");
   renderMappingState(); renderNotice(); renderUpdated();
+}
+function renderDevices() {
+  const select = $("authorized-devices"), previous = select.value;
+  select.replaceChildren(...authorizedDevices.map((device, index) => {
+    const option = node("option", "", `${device.name || t("unnamedDevice")} · ${index + 1}`);
+    option.value = device.id;
+    return option;
+  }));
+  if (!authorizedDevices.length) { const option = node("option", "", t("noAuthorizedDevices")); option.value = ""; select.append(option); }
+  if (authorizedDevices.some((device) => device.id === previous)) select.value = previous;
+  select.disabled = busy || connected() || !authorizedDevices.length;
+  $("reconnect").disabled = !compatible || select.disabled;
+  $("refresh-devices").disabled = !canListDevices || busy || connected();
+  $("device-list-help").textContent = t(canListDevices ? "authorizedHelp" : "pageDevicesOnly");
+}
+async function refreshDevices() {
+  const devices = await getAuthorizedDevices(navigator.bluetooth);
+  if (devices !== null) authorizedDevices = devices;
+  renderDevices();
+}
+function rememberDevice(device) {
+  authorizedDevices = [...authorizedDevices.filter((known) => known.id !== device.id), device];
+  renderDevices(); $("authorized-devices").value = device.id;
 }
 function renderUpdated() {
   $("updated").textContent = diagnostic ? t("updated", { time: new Date(diagnostic.capturedAt).toLocaleTimeString(getLanguage(), { hour12: false }), stale: connected() ? "" : t("stale") }) : t("noSample");
@@ -208,13 +235,20 @@ function translate() {
   renderAngle(); renderLayout(); render(); renderDiagnostics(); renderLog();
 }
 
-$("connect").addEventListener("click", () => perform(async () => {
-  session = await connectBluetooth(navigator.bluetooth, onSaveState, onDisconnected);
+async function openController(device) {
+  session?.close(); session = null;
+  session = await connectBluetooth(navigator.bluetooth, onSaveState, onDisconnected, { device, onSelected: rememberDevice });
   lastRead = null; diagnostic = null; mappingError = null;
   renderDiagnostics(); log("connected");
   await readMapping({ keepDraft: draftDirty });
   await readDiagnostics();
-}));
+}
+$("connect").addEventListener("click", () => perform(() => openController()));
+$("reconnect").addEventListener("click", () => {
+  const device = authorizedDevices.find((known) => known.id === $("authorized-devices").value);
+  if (device) perform(() => openController(device));
+});
+$("refresh-devices").addEventListener("click", () => perform(refreshDevices));
 $("disconnect").addEventListener("click", () => { session?.close(); onDisconnected(); });
 $("read-mapping").addEventListener("click", () => perform(readMapping));
 $("defaults").addEventListener("click", () => {
@@ -259,3 +293,4 @@ window.addEventListener("pagehide", () => { poller.stop(); session?.close(); ses
 if (!compatible) setNotice(secure ? "unsupported" : "insecure");
 fillMapping(defaultMapping());
 translate();
+if (canListDevices) perform(refreshDevices, { quiet: true });

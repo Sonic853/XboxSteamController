@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>SC2015 · Xbox BLE 配置</title>
-  <link rel="stylesheet" href="./style.css?v=1.1">
-  <script type="module" src="./app.mjs?v=1.1"></script>
+  <link rel="stylesheet" href="./style.css?v=1.2">
+  <script type="module" src="./app.mjs?v=1.2"></script>
 </head>
 <body>
   <header class="topbar wrap">
@@ -20,7 +20,14 @@
     <section class="intro"><p class="eyebrow">STEAM CONTROLLER · 2015</p><h1 data-i18n="headline">你的手柄，你的布局。</h1><p class="lead" data-i18n="lead">通过蓝牙连接手柄本体，调整 Xbox 按键与触控板，查看输入和链路诊断。</p></section>
     <section class="panel connection-panel" aria-labelledby="connection-title">
       <div><h2 id="connection-title" data-i18n="connection">蓝牙连接</h2><p id="connection-status" role="status" aria-live="polite"></p></div>
-      <div class="actions"><button id="connect" class="primary" data-i18n="connect">连接 / 授权手柄</button><button id="disconnect" disabled data-i18n="disconnect">断开网页</button></div>
+      <div class="actions"><button id="connect" class="primary" data-i18n="connect">查找 / 授权手柄</button><button id="disconnect" disabled data-i18n="disconnect">断开网页</button></div>
+      <div class="known-devices full-width">
+        <label for="authorized-devices" data-i18n="authorizedDevices">此网站已授权的设备</label>
+        <select id="authorized-devices" aria-describedby="device-list-help" disabled></select>
+        <div class="actions"><button id="reconnect" disabled data-i18n="reconnect">直接重连所选设备</button><button id="refresh-devices" disabled data-i18n="refreshDevices">刷新授权列表</button></div>
+        <p id="device-list-help" class="small"></p>
+      </div>
+      <p class="small full-width" data-i18n="discoveryHelp">Windows 已配对不等于网站已授权。首次点击“查找 / 授权手柄”；若列表为空，保持选择框打开，将手柄关机后用 RB + Steam 开机，再选择手柄。</p>
       <p class="small full-width" data-i18n="compatibility">需要新版成套本体固件的 XboxBLE 模式。使用 Chrome / Edge，通过 HTTPS 或 localhost 打开。</p>
     </section>
     <p id="notice" class="notice" role="alert" hidden></p>
@@ -28,7 +35,7 @@
       <h2 id="startup-title" data-i18n="startup">开始使用</h2>
       <p><kbd>RB</kbd> + <kbd>Steam</kbd> <span data-i18n="startupNormal">按住右肩 RB + Steam 开机，进入 XboxBLE 并恢复连接。</span></p>
       <p><kbd>RB</kbd> + <kbd>Y</kbd> + <kbd>Steam</kbd> <span data-i18n="startupPair">开机进入 XboxBLE 配对。选择 Xbox Wireless Controller，连接后松开启动组合键。</span></p>
-      <p class="small" data-i18n="serviceHelp">配置服务未广播；网页按设备名称选择并请求额外服务权限。同名设备需装有本工程配套固件。</p>
+      <p class="small" data-i18n="serviceHelp">选择框显示所有可发现的 BLE 设备，请选择 Xbox Wireless Controller。连接后会校验本工程私有配置服务；普通 Xbox 手柄不支持此配置。</p>
     </section>
 
     <section class="workspace" aria-labelledby="mapping-title">
@@ -92,7 +99,7 @@
     <section class="workspace" aria-labelledby="activity-title"><div class="section-heading"><div><p class="eyebrow">ACTIVITY</p><h2 id="activity-title" data-i18n="activity">操作记录</h2></div><button id="clear-log" data-i18n="clearLog">清空显示</button></div><ol id="log" class="panel log" aria-live="polite"></ol></section>
     <details class="panel help"><summary data-i18n="troubleshoot">使用与排查</summary><ul><li data-i18n="help1">连接成功后会自动加载配置。保存冲突表示基准 token 已改变，请重新读取再编辑。</li><li data-i18n="help2">“已持久化”只在收到匹配事务的成功 ACK 后显示；“回读一致”还需要完整配置再次校验。未知结果不会自动重发提交。</li><li data-i18n="help3">设备列表为空时，确认手柄处于 XboxBLE 配对/可发现状态、蓝牙已启用、浏览器有权限。服务不可用时检查成套固件版本。</li><li data-i18n="help4">需要核对游戏输入时，可断开网页以释放本页 GATT 连接。诊断的连接、加密、订阅和 HVX 计数应分别查看。</li></ul></details>
   </main>
-   <footer class="wrap footer"><span>SC2015 Xbox BLE · <span data-i18n="webVersion">网页 1.1 / 协议 1</span></span><span id="environment"></span></footer>
+   <footer class="wrap footer"><span>SC2015 Xbox BLE · <span data-i18n="webVersion">网页 1.2 / 协议 1</span></span><span id="environment"></span></footer>
   <noscript>请启用 JavaScript / JavaScript is required.</noscript>
 </body>
 </html>

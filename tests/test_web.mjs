@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { BluetoothChannel, ConfigClient, UUID, DEVICE_OPTIONS, OP, STATUS, ProtocolError, StatusError,
   crc32, requestBytes, parseResponse, defaultMapping, encodeMapping, decodeMapping, parseDiagnostics } from "../web/protocol.mjs";
-import { DiagnosticPoller, connectBluetooth } from "../web/manager.mjs";
+import { DiagnosticPoller, connectBluetooth, getAuthorizedDevices } from "../web/manager.mjs";
 import { messages, sources, targets, blockReasons, setLanguage, getLanguage, initialLanguage, t } from "../web/i18n.mjs";
 
 // Fixture bytes are independent of encodeMapping. Mock firmware speaks the real
@@ -371,18 +371,93 @@ test("six diagnostic pages decode LE fields, masks, axes, hat and report without
   }
 });
 
-test("device chooser uses exact name and optional, unadvertised service; GATT discovery is serial", async () => {
+test("chooser accepts missing/changed names and grants the unadvertised config service; discovery is serial", async () => {
   const device = new MockDevice(), calls = [];
   device.gatt.connect = async () => ({ getPrimaryService: async (uuid) => {
     calls.push(uuid); return { getCharacteristic: async (id) => { calls.push(id); return id === UUID.request ? device.request : device.response; } };
   } });
   const bluetooth = { requestDevice: async (options) => {
-    assert.deepEqual(options, { filters: [{ name: "Xbox Wireless Controller" }], optionalServices: [UUID.service] }); return device;
+    assert.deepEqual(options, { acceptAllDevices: true, optionalServices: [UUID.service] }); return device;
   } };
   const session = await connectBluetooth(bluetooth);
   assert.deepEqual(calls, [UUID.service, UUID.request, UUID.response]);
-  assert.deepEqual(DEVICE_OPTIONS.filters, [{ name: "Xbox Wireless Controller" }]); session.close();
+  assert.equal(DEVICE_OPTIONS.acceptAllDevices, true); assert.equal(DEVICE_OPTIONS.filters, undefined); session.close();
   assert.equal(device.gatt.connected, false);
+});
+
+test("authorized-device enumeration is optional and never requests a chooser or connects", async () => {
+  assert.equal(await getAuthorizedDevices({}), null);
+  const granted = [new MockDevice(), new MockDevice()];
+  const bluetooth = { getDevices: async () => granted, requestDevice() { assert.fail("No gesture / chooser required"); } };
+  assert.equal(await getAuthorizedDevices(bluetooth), granted);
+  bluetooth.getDevices = async () => [];
+  assert.deepEqual(await getAuthorizedDevices(bluetooth), []);
+  bluetooth.getDevices = async () => { throw new DOMException("Blocked", "SecurityError"); };
+  await assert.rejects(getAuthorizedDevices(bluetooth), { code: "bluetoothPermission", stage: "authorized" });
+});
+
+function discoverableDevice() {
+  const device = new MockDevice();
+  device.name = "Renamed controller"; device.id = "site-scoped-id";
+  device.gatt.connect = async () => {
+    device.gatt.connected = true;
+    return { getPrimaryService: async (uuid) => {
+      assert.equal(uuid, UUID.service);
+      return { getCharacteristic: async (id) => id === UUID.request ? device.request : device.response };
+    } };
+  };
+  return device;
+}
+
+test("retained grant reconnects directly without scanning, including browsers without getDevices", async () => {
+  const device = discoverableDevice(); let choices = 0, retained, disconnects = 0;
+  const bluetooth = { requestDevice() { choices++; return Promise.resolve(device); } };
+  // requestDevice must be invoked before returning to the click handler.
+  const connecting = connectBluetooth(bluetooth, null, () => disconnects++, { onSelected: (d) => { retained = d; } });
+  assert.equal(choices, 1);
+  const first = await connecting;
+  assert.equal(retained, device);
+  first.close(); first.close();
+  assert.equal(disconnects, 0);
+  const second = await connectBluetooth(bluetooth, null, () => disconnects++, { device: retained });
+  assert.equal(choices, 1);
+  const snapshot = await second.client.readMapping();
+  assert.deepEqual(snapshot.wire, DEFAULT);
+  device.gatt.disconnect();
+  assert.equal(second.channel.closed, true); assert.equal(disconnects, 1);
+  second.close(); assert.equal(disconnects, 1);
+});
+
+test("chooser cancellation, permission denial and missing private service stay distinct", async () => {
+  for (const [name, code] of [["NotFoundError", "chooserEmpty"], ["SecurityError", "bluetoothPermission"], ["NotAllowedError", "bluetoothPermission"]]) {
+    await assert.rejects(connectBluetooth({ requestDevice: async () => { throw new DOMException("test", name); } }),
+      (e) => e.code === code && e.stage === "chooser" && e.cause.name === name);
+  }
+  const device = discoverableDevice(); let selected;
+  device.gatt.connect = async () => ({ getPrimaryService: async () => { throw new DOMException("Missing", "NotFoundError"); } });
+  await assert.rejects(connectBluetooth({ requestDevice: async () => device }, null, null, { onSelected: (d) => { selected = d; } }),
+    (e) => e.code === "serviceMissing" && e.stage === "service");
+  assert.equal(selected, device); assert.equal(device.gatt.connected, false);
+});
+
+test("failed known-device connection preserves the choice and never falls back to a chooser", async () => {
+  const device = discoverableDevice(); let retained;
+  device.gatt.connect = async () => { throw new DOMException("Out of range", "NetworkError"); };
+  await assert.rejects(connectBluetooth({ requestDevice() { assert.fail("Must require a new click"); } }, null, null,
+    { device, onSelected: (d) => { retained = d; } }), { code: "connectFailed", stage: "connect" });
+  assert.equal(retained, device); assert.equal(device.gatt.connected, false);
+});
+
+test("disconnect during discovery cannot create a usable session or discover more characteristics", async () => {
+  const device = discoverableDevice(), entered = deferred(), gate = deferred(); let calls = 0, disconnects = 0;
+  device.gatt.connect = async () => ({ getPrimaryService: async () => {
+    entered.resolve(); await gate.promise;
+    return { getCharacteristic() { calls++; } };
+  } });
+  const connecting = connectBluetooth(null, null, () => disconnects++, { device });
+  await entered.promise; device.gatt.disconnect(); gate.resolve();
+  await assert.rejects(connecting, { code: "disconnected" });
+  assert.equal(calls, 0); assert.equal(disconnects, 0);
 });
 
 test("polling skips busy work and stop prevents timer resurrection after in-flight refresh", async () => {

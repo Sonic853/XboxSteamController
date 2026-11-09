@@ -7,7 +7,7 @@
 1. 使用支持 Web Bluetooth 的 Chrome / Edge，通过 HTTPS 静态站点或 `http://localhost` 打开 `web/`。直接双击 `file://` 不是支持的入口。可部署整个 `web/` 目录，目录内所有模块必须一起发布。
 2. 手柄需装有**新版成套本体固件**，进入 **XboxBLE**。按住**右肩 RB + Steam** 开机进入 XboxBLE 并恢复连接；**RB + Y + Steam** 开机进入 XboxBLE 配对，连接后松开启动组合键。
 3. “Xbox BLE 按键布局”始终可见，可离线编辑默认布局。ABXY预设支持Xbox标准排列、交换A/B与X/Y；预设只改变四个面键。16个实体按键按面键、肩键/扳机、菜单键、背键/按压分组，每个均可自定义Xbox输出，并实时预览面键排列。
-4. 点击“连接 / 授权手柄”，选择 `Xbox Wireless Controller`。网页读取并校验设备配置作为保存基准；未编辑时显示设备布局，已编辑时保留本地草稿。点击“保存到手柄”提交。预设和“填入默认配置”只填写表单，不进行设备I/O；保存完成要求真实持久化ACK及一致回读。
+4. 首次点击“查找 / 授权手柄”，选择 `Xbox Wireless Controller`；已授权时从“此网站已授权的设备”选择手柄并点击“直接重连所选设备”。网页读取并校验设备配置作为保存基准；未编辑时显示设备布局，已编辑时保留本地草稿。点击“保存到手柄”提交。预设和“填入默认配置”只填写表单，不进行设备I/O；保存完成要求真实持久化ACK及一致回读。
 5. 冲突、失败、超时、断连后，按提示**重新读取核对**；连接已释放时先重新连接。读取操作会替换当前表单草稿。没有自动提交重试。
 
 界面可切换中文 / English，仅语言偏好写入浏览器本地存储；存储受限不影响使用。设备配置、诊断留在页面内存或用户主动下载的 JSON 中，无上传接口。
@@ -18,11 +18,17 @@
 
 ### 连接与权限
 
-配置服务**不在广告中广播**，因此设备选择必须使用名称过滤，并把服务加入 `optionalServices`：
+网页1.2区分**Windows系统配对**与**当前浏览器、当前网站的蓝牙授权**：
+
+- 支持 `navigator.bluetooth.getDevices()` 时，页面加载及“刷新授权列表”读取本站已授权设备。用户选定后直接调用该设备的 `gatt.connect()`，不等待广播，也不重开选择框。该API不能枚举Windows所有配对设备，返回设备也不代表在线。
+- 不支持该API时（本次内置Windows Chromium 152实测为`undefined`），仍保留本页通过选择框获得的 `BluetoothDevice`，断开、连接失败及手柄关机后可以直接重连；页面刷新后需再次选择。不会伪造设备对象或用MAC/本地存储ID绕过授权。
+- 首次授权使用 `acceptAllDevices`，避免完整名称只在scan response中、重连时名称未到或设备被重命名导致漏筛。选择框中也可能出现其他BLE设备；连接后顺序验证本工程私有服务和两个特征。普通Xbox手柄没有该服务，会明确报“配置服务不存在”，而不是误报“未选择设备”。
+
+配置服务**不在广告中广播**，不可用它做扫描过滤；始终通过 `optionalServices` 请求访问权限：
 
 ```js
 navigator.bluetooth.requestDevice({
-  filters: [{ name: "Xbox Wireless Controller" }],
+  acceptAllDevices: true,
   optionalServices: ["85300001-2015-4c53-8f44-58426c65434d"],
 });
 ```
@@ -33,7 +39,11 @@ navigator.bluetooth.requestDevice({
 | Request | `85300002-2015-4c53-8f44-58426c65434d` |
 | Response | `85300003-2015-4c53-8f44-58426c65434d` |
 
-不按服务 UUID 扫描，不调用 WebHID，不提供 Receiver / 输入模式选择器。同名的普通 Xbox 手柄没有本工程私有服务。服务发现失败时核对固件和浏览器权限；设备列表为空时核对 XboxBLE 配对/可发现状态。
+`requestDevice()`始终在用户点击调用链中直接调用；不先等待`getDevices()`，也不在直连失败后自动弹选择框。所有GATT服务/特征发现串行执行。授权记录在服务发现前保留；发现期间断连不会返回可用会话。选择取消、访问权限失败、连接失败、私有服务缺失分别提示，底层错误保留在操作记录。
+
+**第一次选择框仍为空**：先打开选择框，再将手柄关机并用 **RB+Steam** 开机，捕获Windows自动重连前的广播。无需为网页授权删除Windows配对。Windows已经连接后，手柄可能停止广播；放宽过滤也不能让未广播、浏览器从未发现且本站未授权的设备凭空出现。Chromium WinRT实现由广播填充设备缓存，选择框只从该缓存补入GATT已连接设备，并非枚举系统全部已配对设备。首次实际发现仍需用户实机验证；不得把`getDevices()`或全设备选择框描述成“导入Windows配对列表”。
+
+实现参考：[Chromium选择框](https://github.com/chromium/chromium/blob/main/content/browser/bluetooth/bluetooth_device_chooser_controller.cc) 的 `PopulateConnectedDevices` 与 [WinRT适配器](https://github.com/chromium/chromium/blob/main/device/bluetooth/bluetooth_adapter_winrt.cc) 的 `OnAdvertisementReceived`。本轮未取得用户浏览器的实际扫描包，不把此机制推定为已实测的唯一原因。
 
 ## GitHub Pages 部署
 
@@ -162,11 +172,11 @@ JSON 导出仅包含解析后的六页诊断、采样起止时间、导出时间
 ## 文件及验证
 
 - `web/protocol.mjs`：编码、CRC、串行 GATT 通道、配置保存状态机、诊断解析。
-- `web/manager.mjs`：按名称发现、服务访问、可停止的诊断轮询。
+- `web/manager.mjs`：首次授权发现、已授权设备直连、分阶段连接错误、服务访问、可停止的诊断轮询。
 - `web/app.mjs`：表单、状态、诊断展示、JSON 导出、连接生命周期。
 - `web/i18n.mjs`：中英文文本和语言偏好。
 - `web/index.html` / `web/style.css`：响应式深色页面，沿用 22.0 的卡片/绿色强调视觉。
-- `tests/test_web.mjs`：无需依赖，用真实 20-byte 协议 mock 设备，覆盖 CRC/格式、旧响应、分页撕裂、状态错误、pending、单次 commit、双 CRC guard、交错 stage、回读不一致、并发队列、超时/断开和轮询计时器清理。
+- `tests/test_web.mjs`：28项无需依赖的测试，用真实 20-byte 协议 mock 设备，覆盖 CRC/格式、旧响应、分页撕裂、状态错误、pending、单次 commit、双 CRC guard、交错 stage、回读不一致、并发队列、超时/断开和轮询计时器清理；包括无名称筛选、可选授权枚举、无扫描直连、同步用户点击激活、分阶段错误及服务发现中途断连。
 
 运行：
 

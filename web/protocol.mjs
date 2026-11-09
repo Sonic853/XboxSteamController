@@ -3,7 +3,10 @@ export const UUID = Object.freeze({
   request: "85300002-2015-4c53-8f44-58426c65434d",
   response: "85300003-2015-4c53-8f44-58426c65434d",
 });
-export const DEVICE_OPTIONS = Object.freeze({ filters: [{ name: "Xbox Wireless Controller" }], optionalServices: [UUID.service] });
+// The name is only in the scan response and may be missing before Windows
+// reconnects. Do not exclude that advertisement (or a renamed cached device).
+// Validate the private service after selection; it is not advertised.
+export const DEVICE_OPTIONS = Object.freeze({ acceptAllDevices: true, optionalServices: [UUID.service] });
 export const OP = Object.freeze({ READ: 1, STAGE: 2, COMMIT: 3, DIAG: 0x10 });
 export const STATUS = Object.freeze({ OK: 0, INVALID: 1, CONFLICT: 2, BUSY: 3, PENDING: 4, TIMEOUT: 5, NOT_LOADED: 6, STORAGE_ERROR: 7 });
 export const ANGLES = Object.freeze([45, 5, 10, 15, 20, 25, 30, 35, 40, 0, 50, 55, 60, 65, 70, 75]);
