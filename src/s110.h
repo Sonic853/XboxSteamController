@@ -18,6 +18,7 @@ SVC_VENEER(sd_service_add, 0xa0)
 SVC_VENEER(sd_characteristic_add, 0xa2)
 SVC_VENEER(sd_value_set, 0xa4)
 SVC_VENEER(sd_value_get, 0xa5)
+SVC_VENEER(sd_sysattr_get, 0xaa)
 #undef SVC_VENEER
 #undef UNUSED
 #define PTR(p) ((uint32_t)(uintptr_t)(p))

@@ -7,6 +7,9 @@
 #define HIDS ((uint8_t *)0x2000251c)
 #define CONN HALF(0x20002006)
 #define PROFILE_MARKER 0x58420180u
+#define DM_LINK ((const uint8_t *)0x20002f14)
+#define DM_SYSATTR ((uint8_t *)0x20002ee4)
+#define BOND_CACHE ((const uint8_t *)0x20002ce0)
 
 struct radio_patch_state {
     struct xbox_input input;
@@ -25,6 +28,12 @@ struct radio_patch_state {
     uint32_t security_error, cccd_error;
     uint16_t last_length, last_header, cccd;
     uint8_t security[2], blocked;
+    uint32_t cccd_writes, cccd_write_tick, sysattr_tick;
+    uint16_t cccd_written, sysattr_missing, cccd_read_length;
+    uint16_t cccd_enables, cccd_disables, cccd_rises, cccd_falls, cccd_previous;
+    uint32_t snapshot_attempts, snapshot_queued, snapshot_error, snapshot_tick;
+    uint16_t snapshot_length;
+    uint8_t snapshot_pending;
 };
 static struct radio_patch_state state;
 extern uint8_t __bss_start__, __bss_end__;
@@ -172,6 +181,24 @@ EXPORT void radio_status(uint8_t *data, uint32_t length) {
 }
 
 EXPORT void radio_event(const uint8_t *event) {
+    if (state.profile) {
+        uint16_t id = get16(event), length = get16(event + 2);
+        if (id == 0x52) {
+            ++state.sysattr_missing;
+            state.sysattr_tick = state.ticks;
+        }
+        /* Observe the actual client WRITE event; do not enable CCCDs ourselves. */
+        if (id == 0x50 && length == 34 && get16(event + 6) == get16(HIDS + 24) &&
+            (event[8] == 1 || event[8] == 2) && !get16(event + 28) && get16(event + 30) == 2) {
+            ++state.cccd_writes;
+            state.cccd_written = get16(event + 32);
+            state.cccd_write_tick = state.ticks;
+            if (state.cccd_written & 1) ++state.cccd_enables;
+            else ++state.cccd_disables;
+            state.snapshot_pending = 1;
+            state.snapshot_tick = state.ticks - 50u; /* First service may save immediately. */
+        }
+    }
     if (state.profile) config_event(event);
     if (state.profile && (get16(event) == 0x10 || get16(event) == 0x11)) {
         uint32_t suppress = state.input.suppress;
@@ -182,8 +209,53 @@ EXPORT void radio_event(const uint8_t *event) {
         state.last_valid = 0;
         state.suspended = 0;
         state.boot_protocol = 0;
+        state.snapshot_pending = 0; /* Never carry a write into a different link. */
     }
     FN(0x1912c, void, const uint8_t *)(event);
+}
+
+/* The shipped device manager snapshots system attributes during auth/disconnect,
+ * not CCCD WRITE. Windows subscribes after auth; a controller power-off can end
+ * the radio before its disconnect snapshot/deferred LPC write. Save the actual
+ * stack attributes after an accepted WRITE, while the bonded link is alive.
+ * Layout/ABI: original 1cd04 (SYS|USR, 38 bytes), 1ccd4/1cc24 (restore), and
+ * 1e448/1e600 (pstorage handle/staging). No CCCD is synthesized or enabled here. */
+static void subscription_snapshot(void) {
+    if (!state.snapshot_pending || (uint32_t)(state.ticks - state.snapshot_tick) < 50) return;
+    state.snapshot_tick = state.ticks;
+    if (CONN == 0xffff || get16(DM_LINK + 8) != CONN || DM_LINK[11] != 0 ||
+        (DM_LINK[10] & 0xca) != 0x8a || BYTE(0x20002ec6) == 0xff ||
+        !BYTE(0x20002194) || !WORD(0x20002f20)) return;
+    uint8_t security[2] = {0};
+    state.snapshot_error = sd_security(CONN, PTR(security), 0, 0);
+    if (state.snapshot_error || (security[0] & 15) != 1 ||
+        (security[0] >> 4) < 2 || security[1] < 7) return;
+    uint8_t snapshot[48] __attribute__((aligned(4))) = {0};
+    uint16_t length = 38;
+    ++state.snapshot_attempts;
+    state.snapshot_error = sd_sysattr_get(CONN, PTR(snapshot + 8), PTR(&length), 3);
+    state.snapshot_length = length;
+    if (state.snapshot_error) return;
+    if (!length || length > 38) { state.snapshot_error = 0x10; return; }
+    put32(snapshot, 3); /* BLE_GATTS_SYS_ATTR_FLAG_SYS_SRVCS | USR_SRVCS */
+    put32(snapshot + 4, length);
+    uint32_t storage[2];
+    state.snapshot_error = FN(0x1e448, uint32_t, const void *, uint32_t, void *)(
+        (const void *)0x2000219c, DM_LINK[11], storage);
+    if (state.snapshot_error) return;
+    uint8_t changed = 0;
+    for (unsigned i = 0; i < sizeof(snapshot); ++i)
+        changed |= snapshot[i] != BOND_CACHE[0x38 + i];
+    if (changed) {
+        /* Use the status-returning staging routine directly. Its public wrappers
+         * 1e5a4/1e5d0 discard errors. The original timer batches the LPC write. */
+        state.snapshot_error = FN(0x1e600, uint32_t, void *, const void *, uint32_t, uint32_t)(
+            storage, snapshot, sizeof(snapshot), 0x38);
+        if (state.snapshot_error) return;
+        ++state.snapshot_queued; /* Staged for LPC, not a flash-commit ACK. */
+    }
+    memcpy(DM_SYSATTR, snapshot, sizeof(snapshot));
+    state.snapshot_pending = 0;
 }
 
 static int ready(void) {
@@ -204,8 +276,14 @@ static int ready(void) {
     /* The SDK restores bonded CCCDs without necessarily generating a write event.
      * Read the actual input[0] CCCD instead of assuming a callback was seen. */
     state.cccd_error = sd_value_get(CONN, get16(HIDS + 24), PTR(&value), 0);
+    state.cccd_read_length = value.length;
     if (state.cccd_error) { state.blocked = 6; return 0; }
     state.cccd = cccd;
+    if ((cccd ^ state.cccd_previous) & 1) {
+        if (cccd & 1) ++state.cccd_rises;
+        else ++state.cccd_falls;
+    }
+    state.cccd_previous = cccd;
     if (!(cccd & 1)) { state.blocked = 7; return 0; }
     return 1;
 }
@@ -215,6 +293,7 @@ EXPORT void radio_service(void) {
     if (!state.profile || !state.initialized) return;
     ++state.services;
     config_service(state.ticks);
+    subscription_snapshot();
     if (state.last_attempt == state.ticks) return;
     state.last_attempt = state.ticks;
     if (!ready()) { state.last_valid = 0; return; }
@@ -253,4 +332,18 @@ void radio_diagnostics(uint8_t page, uint8_t out[16]) {
         put32(out, state.input.buttons); put32(out + 4, state.input.suppress);
         put16(out + 8, state.last_header);
     } else if (page == 5) input_report_mapped(&state.input, out, config_mapping());
+    else if (page == 6) {
+        put32(out, state.cccd_writes); put16(out + 4, state.cccd_written);
+        put16(out + 6, state.sysattr_missing); put16(out + 8, get16(HIDS + 0x176));
+        put16(out + 10, get16(HIDS + 20)); put16(out + 12, get16(HIDS + 24));
+        put16(out + 14, state.cccd_read_length);
+    } else if (page == 7) {
+        put16(out, state.cccd_enables); put16(out + 2, state.cccd_disables);
+        put32(out + 4, state.cccd_write_tick); put32(out + 8, state.sysattr_tick);
+        put16(out + 12, state.cccd_rises); put16(out + 14, state.cccd_falls);
+    } else if (page == 8) {
+        put32(out, state.snapshot_attempts); put32(out + 4, state.snapshot_queued);
+        put32(out + 8, state.snapshot_error); put16(out + 12, state.snapshot_length);
+        out[14] = state.snapshot_pending; out[15] = DM_LINK[10];
+    }
 }

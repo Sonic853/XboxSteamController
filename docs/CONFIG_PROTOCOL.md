@@ -23,7 +23,7 @@ status：0成功，1参数错误，2并发冲突，3忙，4等待主控持久化
 |2 暂存|0|请求expectedCRC32、mapping前12字节|
 |2 暂存|1|请求mapping后12字节、4字节0|
 |3 提交|0|请求拟写入mappingCRC32、expectedCRC32、8字节0；等待Flash提交回复|
-|0x10 诊断|0..5|见下表|
+|0x10 诊断|0..8|见下表；固件2支持0..5，固件3支持0..7，固件4支持0..8|
 
 映射24字节定义见 `mapping.h` / `INPUT_MAPPING.md`。CRC采用 IEEE CRC32（初值/终值异或FFFFFFFF、多项式EDB88320），也是乐观并发token。分页读需校验完整CRC；不一致只重试读取。提交再次核对完整暂存内容CRC及expectedCRC，避免多客户端交错暂存形成混合配置。暂存未提交不改变当前映射，断连丢弃未提交的暂存。已发往LPC的提交继续等待结果，断连不会撤销Flash操作。
 
@@ -31,14 +31,19 @@ status：0成功，1参数错误，2并发冲突，3忙，4等待主控持久化
 
 |页|字段|
 |---|---|
-|0|u32 `0x32435358`（XSC2），u16固件2，u8协议1，u8flags（loaded/pending/staged），u32 ticks，u32主控status|
+|0|u32 `0x32435358`（XSC2），u16固件修订号（当前4），u8协议1，u8flags（loaded/pending/staged），u32 ticks，u32主控status|
 |1|u32输入包数，u32解析成功，u32解析失败，u16最后长度，u16累计字段mask|
 |2|u32发送尝试，u32成功，u32最后HVX错误，u16连接句柄，u8安全模式/等级，u8密钥长度|
 |3|u32安全查询错误，u32CCCD查询错误，u16CCCD，u8阻塞原因，u8profile状态，u32服务调用数|
 |4|u32原始按钮，u32启动抑制，u16最后包头，6字节0|
 |5|当前16字节Xbox输入报告，不含Report ID|
+|6|u32输入CCCD WRITE数，u16最近写入值，u16SYS_ATTR_MISSING数，u16HIDS连接句柄，u16输入value句柄，u16CCCD句柄，u16查询长度|
+|7|u16启用WRITE数，u16禁用WRITE数，u32最近WRITE tick，u32最近SYS_ATTR_MISSING tick，u16采样0→1数，u16采样1→0数|
+|8|u32系统属性快照尝试数，u32暂存更新数，u32最近错误，u16快照长度，u8等待保存，u8原device-manager连接flags|
 
 阻塞原因：0就绪，1断开，2挂起，3boot protocol，4安全查询失败，5未满足加密，6CCCD查询失败，7未订阅，8缺输入字段，9尚无timer tick。页3的profile flags低4位依次为Xbox、initialized、suspended、boot protocol。计数为开机累计32位值，回绕属于正常行为；各页不是同一时刻的原子快照。没有导出绑定密钥。
+
+页8暂存更新数表示系统属性已交给原pstorage RAM缓存及延迟UART写入，**不是LPC Flash提交ACK**。此绑定通道与上面的映射保存ACK协议不同。快照只由实际输入CCCD WRITE触发，保存通知启用和禁用两种值；重连后直接恢复已存系统属性，计数可以为0。原生诊断工具按修订号自动读取6/8/9页，网页读取前6页保持兼容。
 
 ## radio ↔ LPC UART
 

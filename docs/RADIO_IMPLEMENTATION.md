@@ -47,6 +47,14 @@ profile 在 `radio_init` 进入 GATT 前冻结。后续回复不能热切换 GAT
 
 原 UART `0x50` feature response 和 `0x55` 状态在 Xbox 下被消费，防止它们继续以原 vendor report index2发送，导致只有一个Input时越界。
 
+## 修订4：绑定订阅的及时保存
+
+实机配对采集观察到首次输入订阅成功并收到293条报告，关机重连后CCCD=0而Windows保留完成标记。原device manager在auth/disconnect保存系统属性，未处理CCCD WRITE；auth早于Windows订阅，关机可能使radio来不及完成断开保存。详见 [LIVE_DIAGNOSTICS.md](LIVE_DIAGNOSTICS.md)。
+
+`radio_event` 收到输入CCCD的完整WRITE_REQ/WRITE_CMD后标记待保存；主循环在同一已加密、已绑定连接上用SVC `0xaa` 读取真实系统属性。沿用原 `0x1cd04` 格式：48字节上下文，前8字节为flags=3及长度，最多38字节opaque数据，位于独立Xbox绑定配置偏移 `0x38`。通过原 `0x1e448` 取得pstorage句柄，`0x1e600` 暂存并启动原约0.5秒合并计时器，之后经原 `0x18788` UART和LPC日志持久化。同步更新原DM RAM上下文，使本次开机内重连也使用最新订阅。
+
+相同内容不重复暂存，读取/暂存失败约0.5秒后重试，断连清除待保存标记。显式禁用也保存0；不产生CCCD写入、不绕过输入发送门控。恢复仍由原 `0x1ccd4→0x1cc24` 按当前绑定和加密状态完成。旧固件缺失的订阅无法凭空恢复，升级验证时需重新配对一次，让Windows真正订阅并等待保存。
+
 ## S110 ABI 来源
 
 SDK9 / S110 v8 的调用号，不能用 nRF52 新SDK替代：
@@ -62,6 +70,7 @@ SDK9 / S110 v8 的调用号，不能用 nRF52 新SDK替代：
 |gatts_value_set|`0xa4`|
 |gatts_value_get|`0xa5`|
 |gatts_hvx（原SDK helper内部）|`0xa6`|
+|gatts_sys_attr_get|`0xaa`|
 
 参考：[Nordic SDK9 GAP serialization](https://docs.nordicsemi.com/r/bundle/nrf5_sdk_v9.0.0/page/ble_serialization_s110_functions_gap.html)、[SDK9 S110 codecs](https://docs.nordicsemi.com/r/bundle/nrf5_sdk_v9.0.0/page/group_ser_conn_s110_codecs.html)。原 `0x1ba90` 的汇编也直接显示 `svc 0xa6` 和参数布局。
 
@@ -76,3 +85,5 @@ SDK9 / S110 v8 的调用号，不能用 nRF52 新SDK替代：
 ## 验证范围
 
 软件验证用于字节定位、ARM调用约定、报告编码及模拟的事件/错误路径。SoftDevice无线调度、真实GATT客户端、原厂升级器、配对持久化及Windows原生XInput必须在设备上验证；静态分析或模拟SVC不能代替这些结论。
+
+2026-11-09，用户确认修订4关机后RB+Steam重连输入已正常；此次实机确认及对应镜像校验值记录于 [LIVE_DIAGNOSTICS.md](LIVE_DIAGNOSTICS.md)。

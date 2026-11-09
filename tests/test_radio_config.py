@@ -2,7 +2,7 @@
 import struct
 import unittest
 import zlib
-from radio_harness import RadioBuild, RadioMachine
+from radio_harness import RadioBuild, RadioMachine, HIDS
 
 MAGIC = 0x58434D31
 DEFAULT = bytes.fromhex("01640102030405060708090b0a0a000b1011b80bac0d401f")
@@ -154,7 +154,8 @@ class RadioConfigTests(unittest.TestCase):
 
     def test_diagnostics_identify_raw_parse_and_send_gates(self):
         identity = self.request(0x10)
-        self.assertEqual(identity[4:11], b"XSC2\x02\0\x01")
+        self.assertEqual(identity[4:11], b"XSC2\x04\0\x01")
+        self.assertEqual(self.request(0x10, 8)[4:], bytes(16))
         self.m.input(b"bad")
         rx = self.request(0x10, 1)
         self.assertEqual(struct.unpack_from("<III", rx, 4), (2, 1, 1))
@@ -167,6 +168,51 @@ class RadioConfigTests(unittest.TestCase):
         self.m.cycle()
         tx = self.request(0x10, 2)
         self.assertEqual(struct.unpack_from("<III", tx, 4), (1, 1, 0))
+
+    def test_subscription_trace_distinguishes_client_writes_and_later_clear(self):
+        m = self.m
+        m.cccd = 0
+        m.cycle()
+        initial = self.request(0x10, 6)
+        self.assertEqual(struct.unpack_from("<I6H", initial, 4), (0, 0, 0, 0x123, 0x44, 0x46, 2))
+        event = bytearray(34)
+        struct.pack_into("<4H", event, 0, 0x50, 34, 0x123, 0x46)
+        event[8] = 1
+        struct.pack_into("<3H", event, 28, 0, 2, 1)
+        m.call("radio_event", m.alloc(event))
+        # The observer must not change the stack's CCCD or bypass the gate.
+        m.cycle()
+        self.assertEqual(m.notifications, [])
+        m.cccd = 1
+        m.cycle()
+        self.assertEqual(len(m.notifications), 1)
+        m.event(0x52)
+        m.cccd = 0  # Model a subsequent system-attribute reset, with no client write.
+        m.cycle()
+        observed = self.request(0x10, 6)
+        self.assertEqual(struct.unpack_from("<I6H", observed, 4), (1, 1, 1, 0x123, 0x44, 0x46, 2))
+        trace = self.request(0x10, 7)
+        self.assertEqual(struct.unpack_from("<HHIIHH", trace, 4), (1, 0, 1, 3, 1, 1))
+        self.assertEqual(self.request(0x10, 3)[14], 7)
+        self.assertEqual(len(m.notifications), 1)
+
+    def test_subscription_trace_filters_events_and_records_explicit_disable(self):
+        m = self.m
+        event = bytearray(34)
+        struct.pack_into("<4H", event, 0, 0x50, 34, 0x123, 0x46)
+        event[8] = 2
+        struct.pack_into("<3H", event, 28, 0, 2, 0)
+        for field, bad_value in ((6, 0x45), (8, 3), (28, 1), (30, 1)):
+            bad = bytearray(event)
+            if field == 8:
+                bad[field] = bad_value
+            else:
+                struct.pack_into("<H", bad, field, bad_value)
+            m.call("radio_event", m.alloc(bad))
+        self.assertEqual(struct.unpack_from("<I", self.request(0x10, 6), 4)[0], 0)
+        m.call("radio_event", m.alloc(event))
+        self.assertEqual(struct.unpack_from("<I", self.request(0x10, 6), 4)[0], 1)
+        self.assertEqual(struct.unpack_from("<HH", self.request(0x10, 7), 4), (0, 1))
 
 
 if __name__ == "__main__":
