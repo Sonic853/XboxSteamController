@@ -1,4 +1,4 @@
-# 本体配置通道 v1（固件 revision 2）
+# 本体配置通道 v1（固件 revision 5）
 
 仅 Xbox profile 注册以下独立 GATT 服务：
 
@@ -31,7 +31,7 @@ status：0成功，1参数错误，2并发冲突，3忙，4等待主控持久化
 
 |页|字段|
 |---|---|
-|0|u32 `0x32435358`（XSC2），u16固件修订号（当前4），u8协议1，u8flags（loaded/pending/staged），u32 ticks，u32主控status|
+|0|u32 `0x32435358`（XSC2），u16固件修订号（当前5），u8协议1，u8flags（loaded/pending/staged），u32 ticks，u32主控status|
 |1|u32输入包数，u32解析成功，u32解析失败，u16最后长度，u16累计字段mask|
 |2|u32发送尝试，u32成功，u32最后HVX错误，u16连接句柄，u8安全模式/等级，u8密钥长度|
 |3|u32安全查询错误，u32CCCD查询错误，u16CCCD，u8阻塞原因，u8profile状态，u32服务调用数|

@@ -22,6 +22,13 @@ STACK = 0x20003E28
 SCRATCH = 0x10000000
 RETURN = 0x3F000
 
+# Independent AES-128 ECB known-answer fixtures (synthetic keys). No crypto
+# package is needed by the tests; only the hardware boundary returns a vector.
+IDENTITY_VECTORS = {
+    bytes(range(16)): bytes.fromhex('68bf4573019416e8f1197465299aae0b'),
+    bytes(range(16, 32)): bytes.fromhex('5f88dfe0f6ed4633c7a258bea196719b'),
+}
+
 
 def unavailable(message):
     if os.environ.get("XSC_REQUIRE_EMULATION") == "1":
@@ -118,6 +125,8 @@ class RadioMachine:
         self.uuid_bases = []
         self.name, self.appearance = b"SteamController", 0
         self.name_permission = None
+        self.identity_irk = bytes(range(16))
+        self.identity_interval = 900
         self.execute_original = set()
         self.return_codes = {}
         self.sec = b"\x21\x10"
@@ -219,6 +228,21 @@ class RadioMachine:
 
     def _svc(self, number, args):
         r0, r1, r2, r3 = args
+        if number in (0x68, 0x69):
+            assert r0 == 0x23, 'S110 v8 BLE_GAP_OPT_PRIVACY'
+            pointer = self.u32(r1)
+            if number == 0x69:
+                self.write(pointer, self.identity_irk)
+                self.write16(r1 + 4, self.identity_interval)
+            else:
+                self.identity_irk = self.read(pointer, 16)
+                self.identity_interval = self.u16(r1 + 4)
+            return 0
+        if number == 0x4D:
+            assert r0 % 4 == 0, 'ECB hardware data must be word-aligned'
+            assert self.read(r0 + 16, 16) == b'XSC2015 Xbox IRK'
+            self.write(r0 + 32, IDENTITY_VECTORS[self.read(r0, 16)])
+            return 0
         if number == 0x63:
             self.uuid_bases.append(self.read(r0, 16))
             self.write(r1, bytes([len(self.uuid_bases) + 1]))

@@ -125,7 +125,7 @@ static void request(uint32_t ticks) {
     if (op == 0x10 && arg <= 8) {
         if (!arg) {
             put32(cfg.response + 4, 0x32435358u);
-            put16(cfg.response + 8, 4);
+            put16(cfg.response + 8, 5);
             cfg.response[10] = 1;
             cfg.response[11] = cfg.loaded | (cfg.pending ? 2 : 0) | (cfg.stage ? 4 : 0);
             put32(cfg.response + 12, ticks);

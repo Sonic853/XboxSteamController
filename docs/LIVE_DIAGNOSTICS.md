@@ -251,3 +251,11 @@ PowerShell语法通过；离线生命周期检查覆盖普通90秒、配对300�
 2026-11-09，用户在收到上述刷写及关机重连验证步骤后回复：**“已正常”**。据此将修订4的“关机后RB+Steam重连无输入”问题标记为**用户实机验证通过**。对应交付为 `xbox-reconnect.bat` / `updatescripts/fw_images/xbox-reconnect/`，radio SHA-256 `5cfd1329b7ed46a2823945e7d3715aea120f07dbbaa869b04ee55e186c5d29fc`。
 
 本次确认依据为用户操作反馈；未新增ETL或固件诊断读数。后续日常重连使用RB+Steam，重新配对使用RB+Y+Steam。
+
+## 修订5：双向切换后配对失败（2026-11-10）
+
+用户报告Xbox配对后Steam可发现但配对失败，反向同样失败；已确认Steam使用关机后的Y+Steam、不按RB。核对发现两种模式虽分开绑定和地址，原DM仍在local identity指针为NULL时分发同一个S110默认IRK。
+
+修订5为Xbox在广播前派生并设置独立IRK。完整143项Python/ARM测试、28项网页测试通过；交付入口`xbox-identity.bat`，radio SHA-256为`5f6f68b9a990abb6e1491f2a6f237993dbbdc18a82c5982803de2453a0b028d2`。具体原指令证据、匹配SDK9 ABI和迁移步骤见 [BLE_IDENTITY.md](BLE_IDENTITY.md)。
+
+本次没有实际失败的SMP/Windows配对错误记录；系统是否因共享IRK合并设备仍是待验证解释。未执行刷写，修订5实机双向配对尚待用户确认。

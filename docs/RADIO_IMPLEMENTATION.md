@@ -15,7 +15,7 @@
 
 LPC 的两条配置回复路径发送 137 字节：`5d | offset=0 | marker=0x58420180 | 独立配置128字节`。radio `0x5d` handler wrapper 在原 `0x189c8` 回调前读取 marker。原 handler 忽略 header 中的 length，使用实际 UART 包长度减9，所以绑定数据仍是原格式。
 
-profile 在 `radio_init` 进入 GATT 前冻结。后续回复不能热切换 GATT。普通启动继续原 Steam profile；新模式的独立配置含独立 BLE bond 和地址。原 `0x18fa0` 从配置偏移 `0x6c` 读7字节 random-static 地址；空配置会重新生成，随后原连接路径写回。因此无需共享 Steam 地址或仅修改设备名。
+profile 在 `radio_init` 进入 GATT 前冻结。后续回复不能热切换 GATT。普通启动继续原 Steam profile；新模式的独立配置含独立 BLE bond 和地址。原 `0x18fa0` 从配置偏移 `0x6c` 读7字节 random-static 地址；空配置会重新生成，随后原连接路径写回。修订5还为Xbox设置独立IRK：仅分开地址和绑定槽仍会让原S110分发同一默认IRK，详见 [BLE_IDENTITY.md](BLE_IDENTITY.md)。
 
 ## HIDS / 身份 / 广播
 
@@ -65,6 +65,8 @@ SDK9 / S110 v8 的调用号，不能用 nRF52 新SDK替代：
 |appearance_set|`0x78`|
 |conn_sec_get|`0x83`|
 |uuid_vs_add|`0x63`|
+|opt_set / opt_get|`0x68` / `0x69`|
+|ecb_block_encrypt|`0x4d`|
 |gatts_service_add|`0xa0`|
 |gatts_characteristic_add|`0xa2`|
 |gatts_value_set|`0xa4`|

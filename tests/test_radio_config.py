@@ -154,7 +154,7 @@ class RadioConfigTests(unittest.TestCase):
 
     def test_diagnostics_identify_raw_parse_and_send_gates(self):
         identity = self.request(0x10)
-        self.assertEqual(identity[4:11], b"XSC2\x04\0\x01")
+        self.assertEqual(identity[4:11], b"XSC2\x05\0\x01")
         self.assertEqual(self.request(0x10, 8)[4:], bytes(16))
         self.m.input(b"bad")
         rx = self.request(0x10, 1)

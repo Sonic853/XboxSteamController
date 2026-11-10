@@ -84,10 +84,29 @@ static void tick(void *context) {
     ++state.ticks;
 }
 
+static void isolate_identity(void) {
+    /* Separate bond slots/addresses do not separate the S110 default IRK.
+     * The shipped DM passes NULL for own id; S110 then distributes this global
+     * key. Derive a stable, per-controller Xbox key using the stack's AES API.
+     * Run once after BLE enable, before deferred advertising. Steam uses the
+     * unchanged device default on its next cold boot. See BLE_IDENTITY.md. */
+    static const uint8_t label[16] = "XSC2015 Xbox IRK";
+    struct ecb_block block __attribute__((aligned(4))) = {0};
+    struct gap_privacy_option option = {block.key, 0, 0};
+    check(sd_opt_get(GAP_OPT_PRIVACY, PTR(&option), 0, 0));
+    memcpy(block.cleartext, label, sizeof(label));
+    check(sd_ecb_encrypt(PTR(&block), 0, 0, 0));
+    option.irk = block.ciphertext;
+    check(sd_opt_set(GAP_OPT_PRIVACY, PTR(&option), 0, 0));
+    /* S110 copies the key synchronously; preserve its existing cycle interval. */
+    memset(&block, 0, sizeof(block));
+}
+
 EXPORT void radio_init(uint32_t erase_bonds) {
     state.initialized = 1; /* Freeze the profile before the first GATT registration. */
     FN(0x18394, void, uint32_t)(erase_bonds);
     if (state.profile) {
+        isolate_identity();
         check(config_init());
         state.timer_pointer = state.timer;
         check(FN(0x16cd8, uint32_t, uint32_t **, uint32_t, void (*)(void *))(

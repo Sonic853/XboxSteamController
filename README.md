@@ -2,9 +2,9 @@
 
 为 **2015 版 Steam Controller 本体**增加 Xbox Series BLE 输入模式的实验性固件补丁。基于固定版本的原厂 LPC 主控、nRF51822 radio 和 S110 固件，生成成套的 `host.bin` / `radio.bin`。
 
-Xbox身份采用 `045e:0b13`、283字节 Series Report Map。上一版用户已实测配对、重连成功，但没有输入；本次加入输入修复、可配置映射和分层诊断，当前版本仍需重新实测 Windows 输入。
+Xbox身份采用 `045e:0b13`、283字节 Series Report Map。修订4的关机重连输入已获用户实机确认；当前修订5修正Steam/Xbox共用默认IRK的身份隔离缺口，双向切换配对仍待实机验证。
 
-当前双MCU构建成功，**128项固件测试＋23项网页协议测试通过**。产物和软件验证边界见 [VALIDATION.md](docs/VALIDATION.md)。
+当前双MCU构建成功，**143项固件测试＋28项网页测试通过**。修订5产物、证据和刷写验证步骤见 [BLE_IDENTITY.md](docs/BLE_IDENTITY.md)，历史软件验证见 [VALIDATION.md](docs/VALIDATION.md)。
 
 ## 开机操作
 
@@ -16,15 +16,15 @@ Xbox身份采用 `045e:0b13`、283字节 Series Report Map。上一版用户已�
 |Y＋Steam|原 Steam BLE 配对|
 |A / X＋Steam|原私有2.4GHz恢复 / 配对|
 
-Xbox profile 不写入原 transport 配置；下次未按 RB 启动仍按原固件选择规则。Xbox 使用独立绑定存储和 BLE 地址。开机组合键在释放前不作为游戏输入发送。
+Xbox profile 不写入原 transport 配置；下次未按 RB 启动仍按原固件选择规则。Xbox 使用独立绑定存储、BLE地址和IRK。开机组合键在释放前不作为游戏输入发送。
 
 输入映射见 [INPUT_MAPPING.md](docs/INPUT_MAPPING.md)。默认实体摇杆→左摇杆、右触控板→右摇杆、左触控板**按压**→方向键、**左背→R3、右背→L3**。Xbox震动输出不驱动物理触觉，未提供电池服务。
 
 ## 本体配置网页
 
-1. 刷入当前成套 `host.bin` / `radio.bin`，用 **RB＋Y＋Steam** 配对。升级后 GATT 服务有变化；若系统仍缓存旧服务，请删除旧 Xbox 蓝牙设备再配对。
-2. 在项目目录运行 `python -m http.server 8530 --bind 127.0.0.1 --directory web`。
-3. 用 Chrome / Edge 打开 <http://localhost:8530>，点击连接并选择手柄。
+1. 刷入当前成套 `host.bin` / `radio.bin`。修订5首次升级按[身份迁移步骤](docs/BLE_IDENTITY.md#用户实机验证)清理旧配对，再用 **RB＋Y＋Steam** 配对Xbox。
+2. 用 Chrome / Edge 打开已部署的GitHub Pages配置页：<https://page.853lab.com/XboxSteamController/>。
+3. 点击连接并选择手柄，或从本站已授权设备列表直接重连。
 4. 读取映射，编辑按键、死区、左板按压和方向角度，点击保存。只有收到主控 Flash 提交回复并读回一致后才显示保存完成。
 5. 若仍无输入，打开实时诊断，操作几个按键和两块触控板，再导出诊断 JSON。
 

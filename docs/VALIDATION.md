@@ -1,8 +1,14 @@
 # 本地构建与软件验证
 
+## 最新：修订5（2026-11-10）
+
+`build/identity-r5/`构建成功；**143项Python/ARM测试（0 skip）及28项网页测试通过**。原S110前缀保留，radio为137028字节、payload5956字节、永久RAM308/472字节。身份隔离证据、哈希和实机验证边界见 [BLE_IDENTITY.md](BLE_IDENTITY.md)。修订4重连输入已有用户确认；修订5双向配对待实机确认。
+
+## 以下为初版历史验证记录
+
 日期：2026-11-09。Windows x86-64；GCC 9.2.1，Cortex-M0；Unicorn 2.1.4。
 
-## 当前产物
+### 当时产物
 
 `python tools/build.py --base-dir .tools/base --toolchain-bin .tools/gcc/bin` 成功。
 
