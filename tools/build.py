@@ -16,9 +16,11 @@ import tempfile
 if __package__:
     from .dependencies import BASE_IMAGES
     from .image import Edit, bl_target, patch_image, sha256, thumb_bl
+    from .release_version import validate_version
 else:
     from dependencies import BASE_IMAGES
     from image import Edit, bl_target, patch_image, sha256, thumb_bl
+    from release_version import validate_version
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -301,7 +303,19 @@ def write_checksums(directory):
     (directory / "SHA256SUMS").write_text("".join(lines), encoding="ascii", newline="\n")
 
 
-def build(base_dir, toolchain_bin, output):
+def source_files(name, root=ROOT):
+    return ([root / "src" / filename for filename in SOURCES[name]] +
+            sorted((root / "src").glob("*.h")) +
+            [root / "src" / f"{name}.ld", root / "config" / f"{name}-patches.json"])
+
+
+def build(base_dir, toolchain_bin, output, *, release_version="development", source_commit=None):
+    if release_version != "development":
+        validate_version(release_version)
+        if not source_commit:
+            raise ValueError("A release build requires its exact source commit")
+    if source_commit is not None and not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise ValueError("Expected the exact 40-character source commit")
     bases = verify_bases(base_dir)
     configs = {name: read_config(ROOT / "config" / f"{name}-patches.json", name)
                for name in SOURCES}
@@ -311,6 +325,7 @@ def build(base_dir, toolchain_bin, output):
         raise ValueError(f"Expected pinned GCC 9.2.1 (9-2019q4), got {version}")
     manifest = {
         "schema_version": 1, "project": "XboxSteamController", "experimental": True,
+        "release_version": release_version, "source_commit": source_commit,
         "hardware_tested": False, "compiler": run([tools["gcc"], "--version"]).splitlines()[0],
         "compiler_version": version, "compile_flags": list(CFLAGS),
         "link_flags": ["--build-id=none", "-lgcc"], "section_gc": False,
@@ -342,9 +357,6 @@ def build(base_dir, toolchain_bin, output):
             if name == "radio" and image[:len(bases["softdevice"])] != bases["softdevice"]:
                 raise ValueError("Patched image changed the SoftDevice")
             (staging / f"{name}.bin").write_bytes(image)
-            source_files = [ROOT / "src" / filename for filename in SOURCES[name]]
-            source_files += sorted((ROOT / "src").glob("*.h"))
-            source_files += [ROOT / "src" / f"{name}.ld", ROOT / "config" / f"{name}-patches.json"]
             manifest["images"][name] = {
                 "filename": f"{name}.bin", "sha256": sha256(image), "size": len(image),
                 "base": manifest["base_images"][name],
@@ -361,7 +373,8 @@ def build(base_dir, toolchain_bin, output):
                         "sections": ram_sections, "initialization": "Payload runtime must initialize NOLOAD state"},
                 "protected_ranges": [{"start": hex(a), "end": hex(b)} for a, b in protected],
                 "hooks": hooks, "sections": sections,
-                "source_sha256": {p.relative_to(ROOT).as_posix(): sha256(p.read_bytes()) for p in source_files},
+                "source_sha256": {p.relative_to(ROOT).as_posix(): sha256(p.read_bytes())
+                                  for p in source_files(name)},
             }
             print(f"{name}: {len(payload)} payload bytes, {len(image)} image bytes, "
                   f"{len(hooks)} verified edits")
@@ -382,9 +395,12 @@ def main(argv=None):
     parser.add_argument("--base-dir", type=Path, default=ROOT / ".tools" / "base")
     parser.add_argument("--toolchain-bin", type=Path, default=ROOT / ".tools" / "gcc" / "bin")
     parser.add_argument("--output", type=Path, default=ROOT / "build")
+    parser.add_argument("--release-version", default=os.environ.get("RELEASE_VERSION", "development"))
+    parser.add_argument("--source-commit", default=os.environ.get("GITHUB_SHA"))
     args = parser.parse_args(argv)
     try:
-        build(args.base_dir.resolve(), args.toolchain_bin.resolve(), args.output)
+        build(args.base_dir.resolve(), args.toolchain_bin.resolve(), args.output,
+              release_version=args.release_version, source_commit=args.source_commit)
     except (OSError, ValueError, KeyError, TypeError, struct.error) as error:
         print(f"Build failed: {error}", file=sys.stderr)
         return 1

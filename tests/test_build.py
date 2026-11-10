@@ -11,7 +11,7 @@ import struct
 import tempfile
 import unittest
 
-from tools import build
+from tools import build, release
 from tools.image import Edit, bl_target, patch_image, sha256, thumb_bl
 
 
@@ -252,10 +252,33 @@ class RealBuildTests(unittest.TestCase):
         self.assertTrue(self.manifest["experimental"])
         self.assertFalse(self.manifest["hardware_tested"])
         self.assertFalse(self.manifest["hardware_assumptions"]["radio_ficr_read"])
+        self.assertEqual(self.manifest["release_version"], "development")
+        self.assertIsNone(self.manifest["source_commit"])
         self.assertEqual(json.loads((self.output / "manifest.json").read_text(encoding="utf-8")), self.manifest)
         for line in (self.output / "SHA256SUMS").read_text(encoding="ascii").splitlines():
             checksum, filename = line.split("  ")
             self.assertEqual(checksum, sha256((self.output / filename).read_bytes()))
+
+    def test_real_date_build_and_versioned_release_package(self):
+        root = Path(self.temporary.name) / "release-check"
+        version, commit = "2026.11.10p2", "a" * 40
+        with contextlib.redirect_stdout(io.StringIO()):
+            manifest = build.build(self.base_dir, self.bin_dir, root / "build",
+                                   release_version=version, source_commit=commit)
+        for name in build.SOURCES:
+            for path in build.source_files(name):
+                destination = root / path.relative_to(build.ROOT)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, destination)
+        output = root / "build/release"
+        result = release.package(root, output, version, commit)
+        self.assertEqual((manifest["release_version"], manifest["source_commit"]), (version, commit))
+        self.assertEqual((result["version"], result["source_commit"]), (version, commit))
+        for name, digest in result["assets"].items():
+            self.assertEqual(release.sha256(output / name), digest)
+        for name in build.SOURCES:
+            self.assertEqual((output / release.asset_name(version, f"{name}.bin")).read_bytes(),
+                             (self.output / f"{name}.bin").read_bytes())
 
     def test_corrupted_input_does_not_publish_or_replace_output(self):
         corrupted = Path(self.temporary.name) / "corrupted-base"

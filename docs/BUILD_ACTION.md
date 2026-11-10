@@ -5,16 +5,24 @@
 GNU Arm Embedded 9-2019-q4-major（GCC 9.2.1）。ARM 执行测试额外使用
 `unicorn==2.1.4`，安装到 `.tools/python/`；无需 Arduino 或预装 ARM SDK。网页协议测试使用 Node.js 22，自带测试运行器，无 npm 依赖。
 
-## 手动构建
+## 手动构建并发布 Release
 
 1. 在 GitHub 仓库的 **Actions → Build SC2015 firmware → Run workflow** 中选择分支。
 2. 选择 `ubuntu-22.04` 或 `windows-2022`；默认 Ubuntu x86-64。
 3. `firmware_zip_url` 留空使用官方地址。需要镜像时填写同一个 ZIP 的 HTTPS URL；
    ZIP 和三个 BIN 的固定 SHA-256 仍然必须全部匹配，输入无法覆盖哈希。
-4. 成功后下载 `SC2015-firmware-<runner>-<commit>` 附件。
+4. 构建、测试通过后自动发布日期版本，在仓库 **Releases** 下载固件。Actions同时保留
+   `SC2015-firmware-<runner>-<run_id>-<run_attempt>` 构建附件30天。
 
-工作流仅由 `workflow_dispatch` 触发，依次 checkout、setup-python/setup-node、网页协议测试、下载并校验依赖、
-安装固定版本 Unicorn、构建双 MCU，然后运行 `python -m unittest discover -s tests -v`。
+日期规则与 `Receiver` 的 `Receiver date release` 相同：按**北京时间（UTC+8）**取日期，
+首次为 `YYYY.MM.DD`，同日后续版本为 `YYYY.MM.DDp1`、`p2`……，例如
+`2026.11.10`、`2026.11.10p1`。查询全部分页的tags和Releases（包括草稿），按数字取当日
+最大后缀再递增；只有tag而没有Release的版本也视为已占用。
+
+工作流仅由 `workflow_dispatch` 触发；同仓库各分支共用发布并发组，版本选择到发布串行执行。
+`version`任务选择版本，`firmware`任务依次checkout、setup-python/setup-node、网页测试、
+下载并校验依赖、安装固定版本Unicorn、构建双MCU，然后运行
+`python -m unittest discover -s tests -v`。
 测试步骤设置 `PYTHONPATH=.tools/python`、`XSC_REQUIRE_ARM_TESTS=1` 和
 `XSC_REQUIRE_EMULATION=1`，使 ARM 构建/模拟所需依赖缺失时失败。全体测试成功后上传六个文件：
 
@@ -29,9 +37,36 @@ SHA256SUMS
 
 `host.bin` 是 LPC 镜像，`radio.bin` 是 nRF 镜像；ELF 用于检查补丁载荷。
 `SHA256SUMS` 包含另五个文件的 SHA-256，不包含自身。
-`manifest.json` 记录原镜像、源文件/config、编译器、payload 与 RAM 范围、每处 hook 的
+`manifest.json` 记录日期发布版本、准确的源码commit、原镜像、源文件/config、编译器、payload 与 RAM 范围、每处 hook 的
 before/after/symbol、输出哈希和推断项，并明确 `experimental: true`、`hardware_tested: false`。
 Actions 仅生成文件，不运行 Valve 更新器或执行设备操作。
+
+### Release 附件与发布过程
+
+`publish`任务仅在构建和全部测试成功后执行，下载**本次运行和重跑次数**对应的附件，检查
+五项文件校验、host/radio成套镜像、ELF、manifest版本/commit和当前checkout源码指纹。
+Release的五个文件加上 `SC2015-<版本>-` 前缀，例如：
+
+```text
+SC2015-2026.11.10-host.bin
+SC2015-2026.11.10-radio.bin
+SC2015-2026.11.10-host-payload.elf
+SC2015-2026.11.10-radio-payload.elf
+SC2015-2026.11.10-manifest.json
+SHA256SUMS
+```
+
+发布manifest中的镜像/ELF文件名同步更新，`SHA256SUMS`重新计算并覆盖五项实际下载。
+日期版本写入构建记录及Release，不依赖固件诊断协议的数字修订号。
+
+仅`publish`任务取得`contents: write`，使用内置`GITHUB_TOKEN`将tag准确指向所选commit，
+上传完整草稿后转为正式Release。构建/测试失败不发布；版本冲突或上传失败会停止，
+不覆盖已有tag或附件。若失败留下tag/草稿，重新运行整个工作流会选择下一个后缀。
+完成后Actions摘要显示Release链接。
+
+实现：`tools/release_version.py`负责日期规则；`tools/release.py next/package/publish`
+分别负责版本选择、离线打包和GitHub发布。`.gitattributes`为源码及config固定LF换行，
+使Windows构建与Ubuntu发布任务的源码指纹一致。
 
 ## 本地构建
 
@@ -72,6 +107,10 @@ GitHub Actions 从仓库根目录独立下载依赖。
 `--output PATH` 可以指定另一构建目录，例如 `--output .tools/local-build`。构建会在
 独立临时目录编译并验证两颗 MCU，成功后发布六个文件；输入错误或编译失败不会替换
 原产物。`tests/test_build.py` 的真实集成构建也使用独立临时目录，不覆盖 `build/`。
+
+普通本地构建的 `release_version` 为 `development`。需要生成带日期的构建记录时，传入
+`--release-version 2026.11.10 --source-commit <40位commit>`；Actions自动通过
+`RELEASE_VERSION` / `GITHUB_SHA`传递这些信息。`build.py`本身不执行GitHub发布。
 
 ## 构建合同与 config schema
 

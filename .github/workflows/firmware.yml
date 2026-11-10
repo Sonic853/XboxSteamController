@@ -16,15 +16,45 @@ on:
         required: false
         default: ''
 
+# Serialize date-version selection through publication, across all branches.
+concurrency:
+  group: sc2015-date-release
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
 jobs:
-  firmware:
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: 20
+  version:
+    name: Choose Beijing-date release version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inspect all tags and releases
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python tools/release.py next
+
+  firmware:
+    needs: version
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -51,7 +81,7 @@ jobs:
       - name: Upload firmware and build records
         uses: actions/upload-artifact@v4
         with:
-          name: SC2015-firmware-${{ inputs.runner }}-${{ github.sha }}
+          name: SC2015-firmware-${{ inputs.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 30
           path: |
@@ -61,3 +91,32 @@ jobs:
             build/radio-payload.elf
             build/manifest.json
             build/SHA256SUMS
+
+  publish:
+    name: Verify and publish date release
+    needs: [version, firmware]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download tested firmware from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: SC2015-firmware-${{ inputs.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build
+      - name: Verify and package versioned downloads
+        run: python tools/release.py package
+      - name: Reserve tag, upload draft, then publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/release.py publish

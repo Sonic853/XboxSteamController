@@ -37,12 +37,16 @@ Xbox profile 不写入原 transport 配置；下次未按 RB 启动仍按原固�
 
 详细说明见 [WEB_CONFIG.md](docs/WEB_CONFIG.md#github-pages-部署)。
 
-## GitHub Actions 生成固件
+## GitHub Actions 构建与 Release
 
 1. 将 **`XboxSteamController` 文件夹的内容作为独立 GitHub 仓库根目录**上传，包含 `.github/workflows/firmware.yml`。
 2. 打开 **Actions → Build SC2015 firmware → Run workflow**。
 3. 选择 `ubuntu-22.04`（默认）或 `windows-2022`。官方包镜像URL留空即可。
-4. 构建、ARM模拟测试通过后，下载 `SC2015-firmware-…` 附件。
+4. 构建、ARM模拟及网页测试通过后，自动发布 **Release**，也保留 `SC2015-firmware-…` Actions附件。
+
+版本规则与Receiver相同：按**北京时间**使用 `YYYY.MM.DD`，同日再次发布为
+`YYYY.MM.DDp1`、`p2`……，例如 `2026.11.10p1`。Release附件带 `SC2015-<版本>-`
+前缀，manifest记录对应版本和源码commit；完整规则见 [构建与发布说明](docs/BUILD_ACTION.md)。
 
 附件内容：
 
@@ -54,7 +58,7 @@ Xbox profile 不写入原 transport 配置；下次未按 RB 启动仍按原固�
 |`manifest.json`|基线/产物哈希、逐点补丁、Flash/RAM范围、编译信息|
 |`SHA256SUMS`|上述五个文件的SHA-256|
 
-工作流仅生成附件，不刷设备或发布 Release。两个 BIN 是同一补丁协议的一套产物；不能把其中一个与未修改的另一 MCU 固件混用后期待 Xbox 模式工作。
+Release包含成套的两份BIN、两份ELF、manifest及SHA256SUMS。两个BIN是同一补丁协议的一套产物；不能把其中一个与未修改的另一MCU固件混用后期待Xbox模式工作。刷写由用户执行。
 
 ## 本地构建（Windows PowerShell）
 
